@@ -1,108 +1,40 @@
-import json
 import os
-import sys
-import time
-
 import requests
 import yfinance as yf
 
-TOKEN = os.environ.get("TELEGRAM_TOKEN")
-CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-
-ACTIVOS = {
-    "Bitcoin": "BTC-USD",
-    "Oro": "GC=F",
-    "Nasdaq": "^IXIC",
-}
-UMBRAL_PCT = float(os.environ.get("UMBRAL_PCT", "1.0"))
-INTERVALO_SEG = int(os.environ.get("INTERVALO_SEG", "300"))
+# Reemplaza o pasa estos valores como variables de entorno
+TELEGRAM_TOKEN = os.getenv("8760108023:AAGGucW-ilGgXIU6A68mA_K1MTekl0yc2Xs")
+TELEGRAM_CHAT_ID = os.getenv("944323495")
 
 
-def enviar(texto):
-    if not TOKEN or not CHAT_ID:
-        print("[sin token/chat_id] " + texto)
-        return
-    r = requests.post(
-        f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-        data={"chat_id": CHAT_ID, "text": texto},
-        timeout=15,
-    )
-    if not r.ok:
-        print("Error Telegram:", r.status_code, r.text)
+def obtener_precios():
+    tickers = {"Bitcoin": "BTC-USD", "Oro": "GC=F", "Nasdaq": "^IXIC"}
+
+    mensaje = "📊 *Reporte de Precios - Cripto Alertas*\n\n"
+
+    for nombre, ticker in tickers.items():
+        data = yf.Ticker(ticker)
+        info = data.fast_info
+        precio_actual = info.last_price
+        precio_previo = info.previous_close
+
+        variacion = ((precio_actual - precio_previo) / precio_previo) * 100
+        signo = "+" if variacion >= 0 else ""
+
+        mensaje += (
+            f"• *{nombre}:* ${precio_actual:,.2f} ({signo}{variacion:.2f}%)\n"
+        )
+
+    return mensaje
 
 
-def obtener_chat_id():
-    r = requests.get(f"https://api.telegram.org/bot{TOKEN}/getUpdates", timeout=15).json()
-    for u in r.get("result", []):
-        chat = (u.get("message") or {}).get("chat")
-        if chat:
-            print("chat_id:", chat["id"], "-", chat.get("first_name") or chat.get("title"))
-    if not r.get("result"):
-        print("No hay mensajes. Escríbele algo a tu bot en Telegram y vuelve a correr esto.")
-
-
-def precio(simbolo):
-    return float(yf.Ticker(simbolo).fast_info["last_price"])
-
-
-ESTADO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "estado.json")
-
-
-def revisar_una_vez():
-    referencia = {}
-    if os.path.exists(ESTADO):
-        with open(ESTADO) as f:
-            referencia = json.load(f)
-    nuevos = []
-    for nombre, simbolo in ACTIVOS.items():
-        try:
-            actual = precio(simbolo)
-        except Exception as e:
-            print(f"Error leyendo {nombre}: {e}")
-            continue
-        if nombre not in referencia:
-            referencia[nombre] = actual
-            nuevos.append(f"{nombre}: {actual:,.2f}")
-            continue
-        cambio = (actual - referencia[nombre]) / referencia[nombre] * 100
-        print(f"{nombre}: {actual:,.2f} ({cambio:+.2f}%)")
-        if abs(cambio) >= UMBRAL_PCT:
-            flecha = "SUBE" if cambio > 0 else "BAJA"
-            enviar(f"{nombre} {flecha} {cambio:+.2f}%\nAntes: {referencia[nombre]:,.2f}\nAhora: {actual:,.2f}")
-            referencia[nombre] = actual
-    if nuevos:
-        enviar("Bot de alertas iniciado\n" + "\n".join(nuevos))
-    with open(ESTADO, "w") as f:
-        json.dump(referencia, f, indent=2)
-
-
-def main():
-    referencia = {}
-    resumen = []
-    for nombre, simbolo in ACTIVOS.items():
-        referencia[nombre] = precio(simbolo)
-        resumen.append(f"{nombre}: {referencia[nombre]:,.2f}")
-    enviar("Bot de alertas iniciado\n" + "\n".join(resumen))
-
-    while True:
-        time.sleep(INTERVALO_SEG)
-        for nombre, simbolo in ACTIVOS.items():
-            try:
-                actual = precio(simbolo)
-            except Exception as e:
-                print(f"Error leyendo {nombre}: {e}")
-                continue
-            cambio = (actual - referencia[nombre]) / referencia[nombre] * 100
-            if abs(cambio) >= UMBRAL_PCT:
-                flecha = "SUBE" if cambio > 0 else "BAJA"
-                enviar(f"{nombre} {flecha} {cambio:+.2f}%\nAntes: {referencia[nombre]:,.2f}\nAhora: {actual:,.2f}")
-                referencia[nombre] = actual
+def enviar_telegram(mensaje):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": mensaje, "parse_mode": "Markdown"}
+    response = requests.post(url, json=payload)
+    return response.json()
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "chatid":
-        obtener_chat_id()
-    elif len(sys.argv) > 1 and sys.argv[1] == "una_vez":
-        revisar_una_vez()
-    else:
-        main()
+    texto = obtener_precios()
+    enviar_telegram(texto)
